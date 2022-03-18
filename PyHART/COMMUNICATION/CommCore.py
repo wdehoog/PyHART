@@ -15,6 +15,9 @@ from PyHART.COMMUNICATION.Device import HartDevice
 from PyHART.COMMUNICATION.Utils import *
 from PyHART.COMMUNICATION.Common import *
 
+def lprint(msg):
+  #print(msg)
+  return
 
 class Logger:
     def __init__(self, whereToPrint, logFile):
@@ -175,6 +178,12 @@ class HartMaster:
         self.SentPacket = None
         self.RecvPacket = None
 
+        # When rt_os == False and the network is in burst mode we wait for BACK/OBACK before transmitting
+        self.needToWaitForBM = False  # indicates if WriteOnSerial should wait for OnBM
+        self.OnBM = None              # event signaling for OBACK
+        self.BACKTimer = None         # to be able to leave Burst mode when no more BACKs are received
+        self.bdAddress = None         # to check if the bursting device is no more bursting
+
     # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # 
     def Start(self):        
         self._decodeResponseStep = STEP_RX.STEP_PREAMBLES
@@ -197,6 +206,8 @@ class HartMaster:
         self.RT1 = None
         self.RT2 = None
         self.runningTimer = MASTER_TIMERS.NONE
+
+        self.OnBM = threading.Event()
         
     def Stop(self):          
         if self.monitorThread is not None:            
@@ -291,6 +302,7 @@ class HartMaster:
                 print("\n")
     
     def SendCommdoneEvent(self):
+        lprint("SendCommdoneEvent")
         if (self.runningOnRTOS == True):
             if (self._commRes == CommResult.FrameError) or (self._commRes == CommResult.Sync):
                 self.masterStatus = MASTER_STATUS.WATCHING
@@ -304,6 +316,7 @@ class HartMaster:
                 self.runningTimer = MASTER_TIMERS.NONE
             
                 self.CanAccessFlag = False
+                lprint("  self.CanAccessFlag = False")
                 
                 if (self.CanAccessNetwork.is_set() == False):
                     self.CanAccessNetwork.set()
@@ -326,6 +339,7 @@ class HartMaster:
             buffer = self._serial.read(self._serial.in_waiting)
 
             if (buffer):
+                self.stopBACKTimer()
                 for i in range(len(buffer)):
                     rxByte = buffer[i]
                     
@@ -396,6 +410,7 @@ class HartMaster:
                             else:
                                 if ((rxByte & 0x80) > 0):
                                     self._packetType = PacketType.OBACK
+                            self.handleDetectedBurstMessage()
 
                         self._rxPacket.address[0] = rxByte
 
@@ -423,12 +438,14 @@ class HartMaster:
                                         else:
                                             self._packetType = PacketType.OACK
                             else:
+                                #lprint("BACK/OBACK " + hex(rxByte))
                                 if (self.masterType == MASTER_TYPE.PRIMARY):
                                     if ((rxByte & 0x80) == 0):
                                         self._packetType = PacketType.OBACK
                                 else:
                                     if ((rxByte & 0x80) > 0):
                                         self._packetType = PacketType.OBACK
+                                self.handleDetectedBurstMessage()
 
                         if (self._cnt == (HartPacket.ADDR_SIZE - 1)):
                             if (((self._rxPacket.address[0] & 0x3F) | self._rxPacket.address[1] | self._rxPacket.address[2] | self._rxPacket.address[3] | self._rxPacket.address[4]) > 0):
@@ -575,6 +592,7 @@ class HartMaster:
                                         self.ManageUsingStatusWhenMessageIsNotForMe()
                                         
                             elif (self._packetType == PacketType.BACK):
+                                lprint("BACK")
                                 self.networkIsInBurst = True
                                 if (self.masterStatus == MASTER_STATUS.WATCHING):
                                     self.CannotBecameTokenHandler(False)
@@ -583,6 +601,7 @@ class HartMaster:
                                     self.ManageUsingStatusWhenMessageIsNotForMe()
 
                             elif (self._packetType == PacketType.OBACK):
+                                lprint("OBACK")
                                 self.networkIsInBurst = True
                                 if (self.masterStatus == MASTER_STATUS.WATCHING):
                                     self.BecameTokenHandler()
@@ -594,7 +613,7 @@ class HartMaster:
                                 if (self.networkIsInBurst == False):
                                     if (self.masterStatus == MASTER_STATUS.WATCHING):
                                         self.CannotBecameTokenHandler(False)
-                                        
+
                                     elif (self.masterStatus == MASTER_STATUS.USING):
                                         self.ManageUsingStatusWhenMessageIsNotForMe()
                                 else:
@@ -615,13 +634,17 @@ class HartMaster:
                                     self.OnResponseOrTimeout.set()
                                 else:
                                     self.SendCommdoneEvent()
+
                             else:
                                 self.SendCommdoneEvent()
+
+                            self.handleRX()
 
                         self._decodeResponseStep = STEP_RX.STEP_PREAMBLES
 
     # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # 
     def ManageUsingStatusWhenMessageIsNotForMe(self):
+        lprint("ManageUsingStatusWhenMessageIsNotForMe")
         self.StopTimers()        
         self.masterStatus = MASTER_STATUS.WATCHING
         
@@ -630,11 +653,13 @@ class HartMaster:
             self.OnResponseOrTimeout.set()
             
     def CannotBecameTokenHandler(self, doubleTime):
+        lprint("CannotBecameTokenHandler")
         self.StopTimers()     
         self.masterStatus = MASTER_STATUS.WATCHING
-        self.StartRT1Timer(doubleTime)
+        self.StartRT1Timer(doubleTime, "CannotBecameTokenHandler")
 
     def BecameTokenHandler(self):
+        lprint("BecameTokenHandler")
         self.StopTimers()
         self.runningTimer = MASTER_TIMERS.NONE
         self.MasterCanAccessNetwork()
@@ -645,6 +670,7 @@ class HartMaster:
         
     # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # 
     def StopTimers(self):
+        lprint("StopTimers")
         if (self.runningTimer == MASTER_TIMERS.RT1):
             self.RT1.cancel()
         elif (self.runningTimer == MASTER_TIMERS.RT2):
@@ -660,7 +686,8 @@ class HartMaster:
             self.RT1 = threading.Timer(interval * 2, self.RT1Expired)
             self.RT1.start()
     
-    def StartRT1Timer(self, doubleTime):
+    def StartRT1Timer(self, doubleTime, label="not set"):
+        lprint("StartRT1Timer: " + label)
         self.runningTimer = MASTER_TIMERS.RT1
         
         if (self.masterType == MASTER_TYPE.PRIMARY):
@@ -669,17 +696,20 @@ class HartMaster:
             self.ManageRT1time(self.RT1s_time, doubleTime)
         
     def StartRT2Timer(self):
+        lprint("StartRT2Timer")
         self.runningTimer = MASTER_TIMERS.RT2
         self.RT2 = threading.Timer(self.RT2_time, self.RT2Expired)
         self.RT2.start()
     
     def RT2Expired(self):
+        lprint("RT2Expired")
         self.runningTimer = MASTER_TIMERS.NONE
         if (self.masterStatus == MASTER_STATUS.WATCHING):
             self.networkIsInBurst = False
             self.MasterCanAccessNetwork()
     
     def RT1Expired(self):
+        lprint("RT1Expired")
         self.runningTimer = MASTER_TIMERS.NONE
     
         if (self.masterStatus == MASTER_STATUS.WATCHING):
@@ -773,6 +803,7 @@ class HartMaster:
         self.OnResponseOrTimeout.clear()
         
     def WaitForResponseRTOS(self):
+        lprint("WaitForResponseRTOS")
         self.OnResponseOrTimeout.wait()
         self.OnResponseOrTimeout.clear()
         
@@ -827,41 +858,58 @@ class HartMaster:
 
     # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # 
     def TransmitMessage(self, buffer, len):
+        lprint("TransmitMessage")
         self.masterStatus = MASTER_STATUS.ENABLED
         txTime = self.BYTE_TIME * len
-        self._serial.rts = True
+        if (self._serial.rtscts == True):
+          self._serial.rts = True
         self._serial.write(buffer)
-        time.sleep(txTime)
-        self._serial.rts = False
+        if (self._serial.rtscts == True):
+          time.sleep(txTime)
+          self._serial.rts = False
         self.masterStatus = MASTER_STATUS.USING
         
     def WaitForTransmission(self, buffer, len):
+        lprint("WaitForTransmission")
         self.CanAccessNetwork.wait()
         self.CanAccessNetwork.clear()
+        lprint("  CanAccessNetwork is now set. CanAccessFlag: " + str(self.CanAccessFlag))
         
         if (self.CanAccessFlag == True):
             self.TransmitMessage(buffer, len)
-            self.StartRT1Timer(False)
+            #self.StartRT1Timer(False, "WaitForTransmission")
             
     def MasterCanAccessNetwork(self):
+        lprint("MasterCanAccessNetwork self.CanAccessNetwork.is_set: " + str(self.CanAccessNetwork.is_set()) + ", CanAccessFlag: " + str(self.CanAccessFlag))
+        #self.CanAccessFlag = True
         if (self.CanAccessNetwork.is_set() == False):
             self.CanAccessFlag = True
             self.CanAccessNetwork.set()
             
     def WriteOnSerial(self, buffer, len):
+        lprint("WriteOnSerial")
         if (self.runningOnRTOS == True):
+            self.CanAccessNetwork.clear()
             self.CanAccessFlag = False
+            lprint("  self.CanAccessFlag = False")
         
             if (self.runningTimer == MASTER_TIMERS.NONE):                
                 self.masterStatus = MASTER_STATUS.WATCHING
-                self.StartRT1Timer(False)
+                self.StartRT1Timer(False, "WriteOnSerial")
                 
                 self.WaitForTransmission(buffer, len)
             
             elif ((self.runningTimer == MASTER_TIMERS.RT2) or (self.runningTimer == MASTER_TIMERS.RT1)) and (self.masterStatus == MASTER_STATUS.WATCHING):
                 self.WaitForTransmission(buffer, len)
+            else:
+                lprint("WriteOnSerial nothing done!")
             
         else:
+            if self.needToWaitForBM:
+                self.OnBM.clear()
+                self.OnBM.wait()
+                self.needToWaitForBM = False
+
             if (self._serial.rtscts == True):
                 self._serial.rts = True
                 time.sleep(self.BYTE_TIME) # Wait that RTS has really been set before to send the frame.
@@ -874,3 +922,61 @@ class HartMaster:
                 # This ensure that all frame bytes have been sent.
                 time.sleep(self.BYTE_TIME * 2)
                 self._serial.rts = False
+
+    def handleDetectedBurstMessage(self):
+      if (self._packetType == PacketType.BACK):
+          lprint("BACK")
+          self.networkIsInBurst = True
+          self.StopTimers()
+
+      elif (self._packetType == PacketType.OBACK):
+          lprint("OBACK")
+          self.networkIsInBurst = True
+          self.StopTimers()
+
+    # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
+
+    # When self.runningOnRTOS == False there is no bus arbitration.
+    # This makes it almost impossible to communicate on a network with a bursting device.
+    # These fuctions try to solve this by detecting an OBACK and allow WriteOnSerial to wait for it.
+
+    def startBACKTimer(self):
+        self.BACKTimer = threading.Timer(3000, self.BACKTimerExpired)
+        self.BACKTimer.start()
+
+    def stopBACKTimer(self):
+        if not self.BACKTimer == None:
+            self.BACKTimer.cancel()
+
+    def BACKTimerExpired(self):
+        self.bdAddress = None
+        self.networkIsInBurst = False
+        print("Network is not in Burst Mode (timer).")
+
+    def handleRXAck(self):
+       if self.networkIsInBurst == True:
+           # check if bursting device stops bursting
+           if self.bdAddress == self._rxPacket.address and (self._rxPacket.address[0] & 0x40 == 0):
+               self.networkIsInBurst = False
+               print("Network is not in Burst Mode (response).")
+
+    def handleRXBack(self):
+       self.needToWaitForBM = True
+       if self.bdAddress == None:
+           self.bdAddress = self._rxPacket.address.copy()
+           self.networkIsInBurst = True
+           print("Network is in Burst Mode.")
+
+    def handleRX(self):
+        if (self._packetType == PacketType.ACK or self._packetType == PacketType.OACK):
+            self.handleRXAck()
+        elif (self._packetType == PacketType.BACK):
+            self.handleRXBack()
+            if self.masterType == MASTER_TYPE.SECONDARY and not self.OnBM.is_set():
+                self.OnBM.set()
+        elif (self._packetType == PacketType.OBACK):
+            self.handleRXBack()
+            if self.masterType == MASTER_TYPE.PRIMARY and not self.OnBM.is_set():
+                self.OnBM.set()
+
+        self.startBACKTimer()
