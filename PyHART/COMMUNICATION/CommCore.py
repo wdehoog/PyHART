@@ -876,6 +876,15 @@ class HartMaster:
                 time.sleep(self.BYTE_TIME * 2)
                 self._serial.rts = False
 
+    def handleDetectedBurstMessage(self):
+      if (self._packetType == PacketType.BACK):
+          self.networkIsInBurst = True
+          self.StopTimers()
+
+      elif (self._packetType == PacketType.OBACK):
+          self.networkIsInBurst = True
+          self.StopTimers()
+
     # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 
 import serial.rs485
@@ -914,11 +923,3 @@ class HartMasterOnW(HartMaster):
         elif ((self.runningTimer == MASTER_TIMERS.RT2) or (self.runningTimer == MASTER_TIMERS.RT1)) and (self.masterStatus == MASTER_STATUS.WATCHING):
             self.WaitForTransmission(buffer, len)
 
-    def handleDetectedBurstMessage(self):
-      if (self._packetType == PacketType.BACK):
-          self.networkIsInBurst = True
-          self.StopTimers()
-
-      elif (self._packetType == PacketType.OBACK):
-          self.networkIsInBurst = True
-          self.StopTimers()
