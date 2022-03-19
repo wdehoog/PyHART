@@ -429,6 +429,7 @@ class HartMaster:
                                 else:
                                     if ((rxByte & 0x80) > 0):
                                         self._packetType = PacketType.OBACK
+                            self.handleDetectedBurstMessage()
 
                         if (self._cnt == (HartPacket.ADDR_SIZE - 1)):
                             if (((self._rxPacket.address[0] & 0x3F) | self._rxPacket.address[1] | self._rxPacket.address[2] | self._rxPacket.address[3] | self._rxPacket.address[4]) > 0):
@@ -874,3 +875,50 @@ class HartMaster:
                 # This ensure that all frame bytes have been sent.
                 time.sleep(self.BYTE_TIME * 2)
                 self._serial.rts = False
+
+    # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
+
+import serial.rs485
+
+class HartMasterOnW(HartMaster):
+
+    def __init__(self, port, masterType = None, num_retry = None, retriesOnPolling = None, autoPrintTransactions = None, whereToPrint = None, logFile = None, rtsToggle = None):
+        super().__init__(port, masterType, num_retry, retriesOnPolling, autoPrintTransactions, whereToPrint, logFile, rt_os = True, manageRtsCts = None) 
+
+        if (rtsToggle == True):
+           self._serial.rs485_mode = serial.rs485.RS485Settings()
+
+    def TransmitMessage(self, buffer, len):
+        self.masterStatus = MASTER_STATUS.ENABLED
+        txTime = self.BYTE_TIME * len
+        self._serial.write(buffer)
+        self.masterStatus = MASTER_STATUS.USING
+
+    def WaitForTransmission(self, buffer, len):
+        self.CanAccessNetwork.wait()
+        self.CanAccessNetwork.clear()
+
+        if (self.CanAccessFlag == True):
+            self.TransmitMessage(buffer, len)
+
+    def WriteOnSerial(self, buffer, len):
+        self.CanAccessNetwork.clear()
+        self.CanAccessFlag = False
+
+        if (self.runningTimer == MASTER_TIMERS.NONE):
+            self.masterStatus = MASTER_STATUS.WATCHING
+            self.StartRT1Timer(False)
+
+            self.WaitForTransmission(buffer, len)
+
+        elif ((self.runningTimer == MASTER_TIMERS.RT2) or (self.runningTimer == MASTER_TIMERS.RT1)) and (self.masterStatus == MASTER_STATUS.WATCHING):
+            self.WaitForTransmission(buffer, len)
+
+    def handleDetectedBurstMessage(self):
+      if (self._packetType == PacketType.BACK):
+          self.networkIsInBurst = True
+          self.StopTimers()
+
+      elif (self._packetType == PacketType.OBACK):
+          self.networkIsInBurst = True
+          self.StopTimers()
