@@ -891,15 +891,20 @@ import serial.rs485
 
 class HartMasterOnW(HartMaster):
 
-    def __init__(self, port, masterType = None, num_retry = None, retriesOnPolling = None, autoPrintTransactions = None, whereToPrint = None, logFile = None, rtsToggle = None):
+    def __init__(self, port, masterType = None, num_retry = None, retriesOnPolling = None, autoPrintTransactions = None, whereToPrint = None, logFile = None, rtsToggle = None, extendFrame = None):
         super().__init__(port, masterType, num_retry, retriesOnPolling, autoPrintTransactions, whereToPrint, logFile, rt_os = True, manageRtsCts = None) 
 
         if (rtsToggle == True):
            self._serial.rs485_mode = serial.rs485.RS485Settings()
 
+        self.extendFrame = extendFrame # allow to add an extra byte if RTS toggling is not working as expected
+
+        self.handlePrintMsg = None
+
     def TransmitMessage(self, buffer, len):
         self.masterStatus = MASTER_STATUS.ENABLED
-        txTime = self.BYTE_TIME * len
+        if self.extendFrame == True:
+            buffer.append(0xCD)
         self._serial.write(buffer)
         self.masterStatus = MASTER_STATUS.USING
 
@@ -922,4 +927,10 @@ class HartMasterOnW(HartMaster):
 
         elif ((self.runningTimer == MASTER_TIMERS.RT2) or (self.runningTimer == MASTER_TIMERS.RT1)) and (self.masterStatus == MASTER_STATUS.WATCHING):
             self.WaitForTransmission(buffer, len)
+
+    def PrintMsg(self, evtType, evtArgs):
+        if self.handlePrintMsg == None:
+            super().PrintMsg(evtType, evtArgs)
+        else:
+            self.handlePrintMsg(evtType, evtArgs)
 
