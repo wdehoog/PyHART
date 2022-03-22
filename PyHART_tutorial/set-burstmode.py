@@ -56,6 +56,7 @@ def setburstmode_thread(hart):
     FoundDevice = None
     pollAddress = 3
 
+    print("searching field device")
     CommunicationResult, SentPacket, RecvPacket, FoundDevice = hart.LetKnowDevice(pollAddress)
 
     if (FoundDevice is not None):
@@ -110,7 +111,8 @@ def setburstmode_thread(hart):
 
 
 # before starting the communication thread allow hart to detect if the network is in burst mode
-time.sleep(1)
+print("sync with HART bus")
+time.sleep(2)
 
 
 thread = threading.Thread(target=setburstmode_thread, args=(hart,), daemon=False)
