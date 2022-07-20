@@ -51,13 +51,23 @@ def signal_handler(signum, frame):
 def setburstmode_thread(hart):
 
     #
-    # Connect to device at polling address 3
+    # Connect to device
     #
     FoundDevice = None
-    pollAddress = 3
+    pollAddress = 0
+    EndPollingAddress = 15
 
-    print("searching field device")
+    # This slows down too much which can cause the bus arbitration to fail
+    # so only do this while monitoring
+    #hart.handlePrintMsg = hartUtil.PrintMsg
+
+    print("Searching field device")
+
+    while (FoundDevice == None) and (pollAddress <= EndPollingAddress):
+        print("polling: " + str(pollAddress))
     CommunicationResult, SentPacket, RecvPacket, FoundDevice = hart.LetKnowDevice(pollAddress)
+        pollAddress += 1
+
 
     if (FoundDevice is not None):
         PrintDevice(FoundDevice, hart)
