@@ -894,6 +894,8 @@ class HartMasterOnW(HartMaster):
     def __init__(self, port, masterType = None, num_retry = None, retriesOnPolling = None, autoPrintTransactions = None, whereToPrint = None, logFile = None, rtsToggle = None, extendFrame = None):
         super().__init__(port, masterType, num_retry, retriesOnPolling, autoPrintTransactions, whereToPrint, logFile, rt_os = True, manageRtsCts = None) 
 
+        self.TIME_OUT = 1 # RT1 seems to short for Windows
+
         if (rtsToggle == True):
            self._serial.rs485_mode = serial.rs485.RS485Settings()
 
@@ -927,6 +929,10 @@ class HartMasterOnW(HartMaster):
 
         elif ((self.runningTimer == MASTER_TIMERS.RT2) or (self.runningTimer == MASTER_TIMERS.RT1)) and (self.masterStatus == MASTER_STATUS.WATCHING):
             self.WaitForTransmission(buffer, len)
+
+    def WaitForResponseRTOS(self):
+        # on Windows we need the NoRTOS version
+        self.WaitForResponseNoRTOS()
 
     def PrintMsg(self, evtType, evtArgs):
         if self.handlePrintMsg == None:
