@@ -63,9 +63,11 @@ def setburstmode_thread(hart):
 
     print("Searching field device")
 
-    while (FoundDevice == None) and (pollAddress <= EndPollingAddress):
+    while pollAddress <= EndPollingAddress:
         print("polling: " + str(pollAddress))
     CommunicationResult, SentPacket, RecvPacket, FoundDevice = hart.LetKnowDevice(pollAddress)
+        if FoundDevice is not None:
+            break
         pollAddress += 1
 
 
