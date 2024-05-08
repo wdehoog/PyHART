@@ -138,7 +138,12 @@ class HartMaster:
         self._rxPacket = None
         self.OnlineDevice = None
         
-        self._serial = serial.Serial()
+        if sys.platform.startswith('linux') \
+          or sys.platform.startswith('cygwin') \
+          or sys.platform.startswith('darwin'):
+            self._serial = serial.rs485.RS485()
+        else:
+            self._serial = serial.Serial()
         self._serial.port = port
         self._serial.baudrate = 1200
         self._serial.parity = serial.PARITY_ODD
