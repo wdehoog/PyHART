@@ -30,6 +30,7 @@ class HartPacket:
         self.devStatus = 0
         self.data = bytearray(HartPacket.DATA_SIZE)
         self.checksum = 0
+        self.startTime = None
         
     def GetLongCommand(self, command, data):
         if ((command == HartPacket.LONG_COMMAND_INDICATOR) and (len(data) >= 2)):
@@ -140,6 +141,7 @@ class HartPacket:
         retPacket.devStatus = self.devStatus
         retPacket.data = self.data[:]
         retPacket.checksum = self.checksum
+        retPacket.startTime = self.startTime
 
         return retPacket
         

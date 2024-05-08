@@ -343,6 +343,7 @@ class HartMaster:
                             self._decodeResponseStep = STEP_RX.STEP_DELIMITER
                             self._rxPacket.preamblesCnt = 0;
                             self._rxPacket.delimiter = rxByte
+                            self._rxPacket.startTime = datetime.now()
                             self._commRes = CommResult.Sync
                             self.SendCommdoneEvent()
 
@@ -358,6 +359,7 @@ class HartMaster:
                                 
                         elif (rxByte != HartPacket.PREAMBLE):
                             self._rxPacket.delimiter = rxByte
+                            self._rxPacket.startTime = datetime.now()
                             if (self._rxPacket.preamblesCnt >= HartPacket.MIN_PREAMBLE_NUM):
                                 if (self._rxPacket.isTxPacket()):
                                     self._packetType = PacketType.STX
